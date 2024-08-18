@@ -1,11 +1,10 @@
-NAME = ft_malcolm
+NAME = woody_woodpacker
 
 CC = gcc
-CFLAGS = -Wall -Wextra -Werror -I./includes
+CFLAGS = -Wall -Wextra -Werror -lz -I./includes
 
-SRC = src/main.c \
-	  src/malcolm.c \
-	  src/utils.c
+SRC = srcs/main.c \
+	  srcs/elf.c
 OBJ = $(SRC:.c=.o)
 
 all: $(NAME)
