@@ -1,6 +1,6 @@
 #include "woody.h"
 
-int verbose = PRINT_MODE;
+int verbose = 0;
 
 int printHex(char *data, size_t size) {
 	size_t i;
