@@ -62,6 +62,6 @@ int main(int argc, char **argv) {
 	
 	elf_header(data);
 
-    // woody(argv[1]);
+    woody(argv[1]);
     return (0);
 }

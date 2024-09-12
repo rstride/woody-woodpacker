@@ -8,11 +8,13 @@
 #include <unistd.h>
 #include <zlib.h>
 #include <stdlib.h>
+#include <time.h>
 #include <elf.h>
 
 void *readable(char *file);
 int elf_header(void *data);
 int check_magic(void *data);
+int woody(char *file);
 
 #define HELP_MESSAGE "Usage: %s <file>\n"
 
