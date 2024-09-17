@@ -1,80 +1,144 @@
 #include "woody.h"
+#include <sys/stat.h>
 
-void print_usage(char *prog_name) {
-    printf("Usage: %s [-k key] file\n", prog_name);
+/* Write content to the specified file */
+int write_file(char *filename, char *content, long size) {
+    int fd = open(filename, O_CREAT | O_TRUNC | O_WRONLY, 0755);
+    if (fd < 0)
+        return errno;
+
+    ssize_t total_written = 0;
+    while (total_written < size) {
+        ssize_t bytes_written = write(fd, content + total_written, size - total_written);
+        if (bytes_written < 0) {
+            close(fd);
+            return errno;
+        }
+        total_written += bytes_written;
+    }
+    close(fd);
+    return 0;
 }
 
-int main(int argc, char *argv[]) {
-    int opt;
-    char *custom_key = NULL;
-    char *input_file = NULL;
+/* Generate key, allocate memory, and create the woody file */
+int create_woody_file(void *addr, size_t size) {
+    t_elf elf;
+    int ret = init_elf(&elf, addr, size);
+    if (ret != 0) {
+        return ret;
+    }
 
-    // Parse command-line arguments
-    while ((opt = getopt(argc, argv, "k:")) != -1) {
-        switch (opt) {
-        case 'k':
-            custom_key = optarg;
-            break;
-        default:
-            print_usage(argv[0]);
-            return EXIT_FAILURE;
+    t_key key;
+    key.size = KEY_SIZE;
+    key.str = generate_key(key.size);
+    if (!key.str) {
+        return MALLOC_ERROR;
+    }
+
+    int type = 0;
+    Elf64_Phdr *next = elf.pt_load + 1;
+    if (elf.pt_load->p_offset + elf.pt_load->p_memsz + INJECT_SIZE + key.size > next->p_offset) {
+        type = ADD_PADDING;
+        Elf64_Phdr *nnext = next + 1;
+        if (nnext && nnext->p_type == PT_LOAD) {
+            free(key.str);
+            return OUT_OF_RANGE;
         }
     }
 
-    // Get the input file
-    if (optind >= argc) {
-        print_usage(argv[0]);
-        return EXIT_FAILURE;
+    size_t size_dst = size;
+    if (type == ADD_PADDING) {
+        size_t extra_size = ((INJECT_SIZE + key.size) / PAGE_SIZE + 1) * PAGE_SIZE;
+        size_dst += extra_size;
     }
-    input_file = argv[optind];
 
-    // Open the input file
-    int fd = open(input_file, O_RDONLY);
+    void *dst = malloc(size_dst);
+    if (!dst) {
+        free(key.str);
+        return MALLOC_ERROR;
+    }
+
+    ret = fill_binary(&elf, &key, dst, type);
+    if (ret != 0) {
+        free(dst);
+        free(key.str);
+        return ret;
+    }
+
+    ret = write_file("woody", dst, size_dst);
+    free(dst);
+    if (ret != 0) {
+        free(key.str);
+        return OUTPUT_ERROR;
+    }
+
+    printf("========================== KEY =========================\n");
+    ft_print_memory(key.str, key.size);
+    printf("=================== COPY/PASTE FORMAT ==================\n");
+    print_hexa_key(key.str, key.size);
+    printf("\n");
+
+    free(key.str);
+    return 0;
+}
+
+
+/* Open and map the file, then create the woody file */
+int woody_woodpacker(const char *filename) {
+    int fd = open(filename, O_RDONLY);
     if (fd < 0) {
-        perror("Error opening file");
-        return EXIT_FAILURE;
+        perror("open");
+        return errno;
     }
 
     struct stat st;
     if (fstat(fd, &st) < 0) {
-        perror("Error getting file size");
+        perror("fstat");
         close(fd);
-        return EXIT_FAILURE;
+        return errno;
     }
 
-    // Memory-map the file
-    void *file_content = mmap(NULL, st.st_size, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0);
-    if (file_content == MAP_FAILED) {
-        perror("Error mapping file");
+    if (!S_ISREG(st.st_mode)) {
+        fprintf(stderr, "%s is not a regular file.\n", filename);
         close(fd);
-        return EXIT_FAILURE;
+        return EINVAL;
     }
 
-    // Check if the file is a valid ELF binary
-    Elf64_Ehdr *elf_header = (Elf64_Ehdr *)file_content;
-    if (memcmp(elf_header->e_ident, ELFMAG, SELFMAG) != 0) {
-        fprintf(stderr, "Not a valid ELF file.\n");
-        munmap(file_content, st.st_size);
+    size_t size = st.st_size;
+    void *addr = mmap(NULL, size, PROT_READ, MAP_PRIVATE, fd, 0);
+    if (addr == MAP_FAILED) {
+        perror("mmap");
         close(fd);
-        return EXIT_FAILURE;
+        return errno;
     }
-
-    // Determine if the file is 32-bit or 64-bit
-    if (elf_header->e_ident[EI_CLASS] == ELFCLASS32) {
-        printf("Detected 32-bit ELF binary.\n");
-        handle_32bit_binary(file_content, st.st_size, custom_key);
-    } else if (elf_header->e_ident[EI_CLASS] == ELFCLASS64) {
-        printf("Detected 64-bit ELF binary.\n");
-        handle_64bit_binary(file_content, st.st_size, custom_key);
-    } else {
-        fprintf(stderr, "Unsupported ELF class\n");
-        munmap(file_content, st.st_size);
-        close(fd);
-        return EXIT_FAILURE;
-    }
-
-    // Clean up
-    munmap(file_content, st.st_size);
     close(fd);
+
+    int file_type = check_file(addr);
+    if (file_type != ET_EXEC && file_type != ET_DYN) {
+        fprintf(stderr, "%s: Invalid or unsupported file type\n", filename);
+        munmap(addr, size);
+        return WRONG_FILETYPE;
+    }
+
+    int ret = create_woody_file(addr, size);
+    munmap(addr, size);
+    return ret;
+}
+
+
+/* Main function: check arguments, call woody_woodpacker, and handle errors */
+int main(int argc, char *argv[]) {
+    if (argc != 2) {
+        fprintf(stderr, "Usage: %s <target_binary>\n", argv[0]);
+        return EXIT_FAILURE;
+    }
+
+    int ret = woody_woodpacker(argv[1]);
+    if (ret != 0) {
+        print_error(argv, ret);
+        return EXIT_FAILURE;
+    }
+
     return EXIT_SUCCESS;
 }
+
