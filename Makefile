@@ -1,19 +1,13 @@
-NAME = woody_woodpacker
-
 CC = gcc
-CFLAGS = -Wall -Wextra -Werror -I./includes
-LDFLAGS = -lz
-
-SRC = srcs/main.c \
-      srcs/elf.c \
-      srcs/woody.c
-
+CFLAGS = -Wall -Wextra -Werror -I./inc
+SRC = src/main.c src/encrypt.c
 OBJ = $(SRC:.c=.o)
+NAME = woody_woodpacker
 
 all: $(NAME)
 
 $(NAME): $(OBJ)
-	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
+	$(CC) $(CFLAGS) -o $(NAME) $(OBJ) -lz 
 
 clean:
 	rm -f $(OBJ)
