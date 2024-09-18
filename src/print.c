@@ -1,77 +1,94 @@
 #include "woody.h"
-#include <unistd.h>
 
-/* Print a byte in hexadecimal */
-void dec_to_hex(unsigned char c) {
-    char hex_digits[] = "0123456789abcdef";
-    char hex[2];
+#define HEX_CHARS "0123456789abcdef"
 
-    hex[0] = hex_digits[(c >> 4) & 0xF];
-    hex[1] = hex_digits[c & 0xF];
-    write(STDOUT_FILENO, hex, 2);
-}
-
-/* Print 16 bytes of memory in hex and ASCII */
-void print_line(char *str, int n) {
-    char line[64];
-    int idx = 0;
+/**
+ * @brief Convert a decimal value to hexadecimal and print it.
+ *
+ * @param dec The decimal value to convert.
+ */
+void dec_to_hex(char dec) {
+    unsigned char result[2];
+    unsigned char copy = (unsigned char)dec;
     int i;
 
-    /* Build hex part */
-    for (i = 0; i < n; i++) {
-        unsigned char c = (unsigned char)str[i];
-        char hex_digits[] = "0123456789abcdef";
-
-        line[idx++] = hex_digits[(c >> 4) & 0xF];
-        line[idx++] = hex_digits[c & 0xF];
-
-        if (i % 2 == 1 && i != n - 1)
-            line[idx++] = ' ';
+    for (i = 1; i >= 0; i--) {
+        result[i] = HEX_CHARS[copy % 16];
+        copy /= 16;
     }
 
-    /* Add spaces to align ASCII part */
-    int expected_hex_len = (16 * 2) + 7; /* Max hex length with spaces */
-    while (idx < expected_hex_len)
-        line[idx++] = ' ';
-
-    line[idx++] = ' ';
-
-    /* Build ASCII part */
-    for (i = 0; i < n; i++) {
-        unsigned char c = (unsigned char)str[i];
-        line[idx++] = (c >= 32 && c <= 126) ? c : '.';
-    }
-
-    line[idx++] = '\n';
-    write(STDOUT_FILENO, line, idx);
+    write(STDOUT_FILENO, result, 2);
 }
 
-/* Print memory starting from addr of given size */
-void *ft_print_memory(void *addr, unsigned int size) {
-    char *str = addr;
-    unsigned int offset = 0;
+/**
+ * @brief Print a line for ft_print_memory.
+ *        16 characters as hexadecimal, space every 2 characters,
+ *        then print ASCII for those chars. If they are unprintable, print '.'.
+ *
+ * @param str The string to print.
+ * @param n The number of characters to print.
+ */
+void print_line(char *str, int n) {
+    int i;
 
-    while (offset < size) {
-        int n = (size - offset < 16) ? size - offset : 16;
-        print_line(&str[offset], n);
-        offset += n;
+    if (n == 0) n = 16;
+
+    for (i = 0; i < n; i++) {
+        if (i > 0 && i % 2 == 0) write(STDOUT_FILENO, " ", 1);
+        dec_to_hex(str[i]);
     }
+
+    for (i = n; i < 16; i++) {
+        if (i % 2 == 0) write(STDOUT_FILENO, " ", 1);
+        write(STDOUT_FILENO, "  ", 2);
+    }
+
+    write(STDOUT_FILENO, " ", 1);
+
+    for (i = 0; i < n; i++) {
+        if (str[i] < 32 || str[i] > 126) {
+            write(STDOUT_FILENO, ".", 1);
+        } else {
+            write(STDOUT_FILENO, &str[i], 1);
+        }
+    }
+}
+
+/**
+ * @brief Print memory pointed by addr of size 'size'.
+ *
+ * @param addr The address of the memory to print.
+ * @param size The size of the memory to print.
+ *
+ * @return The address of the memory.
+ */
+void *ft_print_memory(void *addr, unsigned int size) {
+    unsigned int i;
+    char *str = (char *)addr;
+    char buffer[16];
+
+    for (i = 0; i < size; i++) {
+        buffer[i % 16] = str[i];
+        if ((i + 1) % 16 == 0 || i == size - 1) {
+            print_line(buffer, (i + 1) % 16 == 0 ? 16 : (i % 16) + 1);
+            write(STDOUT_FILENO, "\n", 1);
+        }
+    }
+
     return addr;
 }
 
-/* Print the key in hexadecimal with '\x' prefix */
+/**
+ * @brief Print the key in hexadecimal with '\x' before every char.
+ *
+ * @param key The generated key.
+ * @param size The size of the key.
+ */
 void print_hexa_key(char *key, size_t size) {
-    char buf[256]; /* Ensure this is large enough for your key size */
-    size_t idx = 0;
+    size_t i;
 
-    for (size_t i = 0; i < size; i++) {
-        unsigned char c = (unsigned char)key[i];
-        char hex_digits[] = "0123456789abcdef";
-
-        buf[idx++] = '\\';
-        buf[idx++] = 'x';
-        buf[idx++] = hex_digits[(c >> 4) & 0xF];
-        buf[idx++] = hex_digits[c & 0xF];
+    for (i = 0; i < size; i++) {
+        write(STDOUT_FILENO, "\\x", 2);
+        dec_to_hex(key[i]);
     }
-    write(STDOUT_FILENO, buf, idx);
 }
